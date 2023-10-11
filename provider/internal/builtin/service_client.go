@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -12,8 +13,8 @@ import (
 	"strings"
 
 	"github.com/antchfx/jsonquery"
-	"github.com/antchfx/xmlquery"
 	"github.com/antchfx/xpath"
+	"github.com/jbowtie/gokogiri"
 	"github.com/konveyor/analyzer-lsp/provider"
 	"go.lsp.dev/uri"
 	"gopkg.in/yaml.v2"
@@ -142,6 +143,7 @@ func (p *builtinServiceClient) Evaluate(ctx context.Context, cap string, conditi
 		if query == nil || err != nil {
 			return response, fmt.Errorf("Could not parse provided xpath query '%s': %v", cond.XML.XPath, err)
 		}
+
 		//TODO(fabianvf): how should we scope the files searched here?
 		var xmlFiles []string
 		patterns := []string{"*.xml", "*.xhtml"}
@@ -151,52 +153,89 @@ func (p *builtinServiceClient) Evaluate(ctx context.Context, cap string, conditi
 		}
 
 		for _, file := range xmlFiles {
-
 			f, err := os.Open(file)
 			if err != nil {
 				fmt.Printf("unable to open file '%s': %v\n", file, err)
 				continue
 			}
-			// TODO This should start working if/when this merges and releases: https://github.com/golang/go/pull/56848
-			var doc *xmlquery.Node
-			doc, err = xmlquery.ParseWithOptions(f, xmlquery.ParserOptions{Decoder: &xmlquery.DecoderOptions{Strict: false}})
+			doc, err := io.ReadAll(f)
 			if err != nil {
-				if err.Error() == "xml: unsupported version \"1.1\"; only version 1.0 is supported" {
-					// TODO HACK just pretend 1.1 xml documents are 1.0 for now while we wait for golang to support 1.1
-					b, err := os.ReadFile(file)
-					if err != nil {
-						fmt.Printf("unable to parse xml file '%s': %v\n", file, err)
-						continue
-					}
-					docString := strings.Replace(string(b), "<?xml version=\"1.1\"", "<?xml version = \"1.0\"", 1)
-					doc, err = xmlquery.Parse(strings.NewReader(docString))
-					if err != nil {
-						fmt.Printf("unable to parse xml file '%s': %v\n", file, err)
-						continue
-					}
-				} else {
-					fmt.Printf("unable to parse xml file '%s': %v\n", file, err)
-					continue
-				}
+				fmt.Printf("unable to read file '%s': %v\n", file, err)
+				continue
 			}
-			list := xmlquery.QuerySelectorAll(doc, query)
-			if len(list) != 0 {
+
+			xmlDoc, _ := gokogiri.ParseXml(doc)
+			defer xmlDoc.Free()
+
+			root := xmlDoc.Root()
+			result, err := root.Search(query.String())
+			if err != nil {
+				fmt.Printf("unable to parse xml file '%s': %v\n", file, err)
+				continue
+			}
+			if len(result) > 0 {
+				docPath, err := filepath.Abs(file)
+				if err != nil {
+					docPath = file
+				}
+
 				response.Matched = true
-				for _, node := range list {
-					ab, err := filepath.Abs(file)
-					if err != nil {
-						ab = file
-					}
+				for _, node := range result {
+					lineNumber := node.LineNumber()
 					response.Incidents = append(response.Incidents, provider.IncidentContext{
-						FileURI: uri.File(ab),
+						FileURI: uri.File(docPath),
+						LineNumber: &lineNumber,
 						Variables: map[string]interface{}{
-							"matchingXML": node.OutputXML(false),
-							"innerText":   node.InnerText(),
-							"data":        node.Data,
+							"matchingXML": node.String(),
+						},
+						CodeLocation: &provider.Location{
+							StartPosition: provider.Position{Line: float64(lineNumber)},
+							EndPosition:   provider.Position{Line: float64(lineNumber)},
 						},
 					})
 				}
 			}
+
+			// TODO This should start working if/when this merges and releases: https://github.com/golang/go/pull/56848
+			// var doc *xmlquery.Node
+			// doc, err = xmlquery.ParseWithOptions(f, xmlquery.ParserOptions{Decoder: &xmlquery.DecoderOptions{Strict: false}})
+			// if err != nil {
+			// 	if err.Error() == "xml: unsupported version \"1.1\"; only version 1.0 is supported" {
+			// 		// TODO HACK just pretend 1.1 xml documents are 1.0 for now while we wait for golang to support 1.1
+			// 		b, err := os.ReadFile(file)
+			// 		if err != nil {
+			// 			fmt.Printf("unable to parse xml file '%s': %v\n", file, err)
+			// 			continue
+			// 		}
+			// 		docString := strings.Replace(string(b), "<?xml version=\"1.1\"", "<?xml version = \"1.0\"", 1)
+			// 		doc, err = xmlquery.Parse(strings.NewReader(docString))
+			// 		if err != nil {
+			// 			fmt.Printf("unable to parse xml file '%s': %v\n", file, err)
+			// 			continue
+			// 		}
+			// 	} else {
+			// 		fmt.Printf("unable to parse xml file '%s': %v\n", file, err)
+			// 		continue
+			// 	}
+			// }
+			// list := xmlquery.QuerySelectorAll(doc, query)
+			// if len(list) != 0 {
+			// 	response.Matched = true
+			// 	for _, node := range list {
+			// 		ab, err := filepath.Abs(file)
+			// 		if err != nil {
+			// 			ab = file
+			// 		}
+			// 		response.Incidents = append(response.Incidents, provider.IncidentContext{
+			// 			FileURI: uri.File(ab),
+			// 			Variables: map[string]interface{}{
+			// 				"matchingXML": node.OutputXML(false),
+			// 				"innerText":   node.InnerText(),
+			// 				"data":        node.Data,
+			// 			},
+			// 		})
+			// 	}
+			// }
 		}
 
 		return response, nil

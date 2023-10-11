@@ -1,6 +1,8 @@
 FROM golang:1.19 as builder
 WORKDIR /analyzer-lsp
 
+RUN apt-get update && apt-get install -y libxml2-dev libonig-dev
+
 COPY  cmd /analyzer-lsp/cmd
 COPY  engine /analyzer-lsp/engine
 COPY  output /analyzer-lsp/output

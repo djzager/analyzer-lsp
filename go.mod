@@ -25,7 +25,7 @@ require (
 )
 
 require (
-	github.com/antchfx/xpath v1.2.4
+	github.com/antchfx/xpath v1.2.4 // indirect
 	github.com/cbroglie/mustache v1.3.0
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/jsonpointer v0.19.5 // indirect
@@ -34,6 +34,7 @@ require (
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/hashicorp/go-version v1.6.0
 	github.com/invopop/yaml v0.1.0 // indirect
+	github.com/jbowtie/gokogiri v0.0.0-20190301021639-37f655d3078f
 	github.com/mailru/easyjson v0.0.0-20190626092158-b2ccc519800e // indirect
 	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826 // indirect
 	github.com/shopspring/decimal v1.3.1 // indirect
